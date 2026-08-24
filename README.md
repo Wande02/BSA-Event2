@@ -11,10 +11,8 @@ Venue: Aston Campus Event Centre, Birmingham, UK
 
 1. Upload a headshot.
 2. Enter their name.
-3. Enter their role.
-4. Enter their organisation.
-5. Click **Create My Profile**.
-6. Download the generated PNG for LinkedIn, WhatsApp or other social media.
+3. Click **Create My Profile**.
+4. Download the generated PNG for LinkedIn, WhatsApp or other social media.
 
 ## Deploy
 
