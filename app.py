@@ -160,7 +160,9 @@ def make_profile(photo: Image.Image, name: str, role: str = "I'm attending") -> 
     # Circular photo with gold ring
     cx, cy, r = 540, 772, 196
     draw.ellipse([cx - r - 14, cy - r - 14, cx + r + 14, cy + r + 14], fill=GOLD)
-    fitted = ImageOps.fit(photo.convert("RGB"), (r * 2, r * 2), method=Image.Resampling.LANCZOS)
+    # Respect EXIF orientation so mobile uploads are not rotated/flipped
+    upright = ImageOps.exif_transpose(photo)
+    fitted = ImageOps.fit(upright.convert("RGB"), (r * 2, r * 2), method=Image.Resampling.LANCZOS)
     mask = Image.new("L", (r * 2, r * 2), 0)
     ImageDraw.Draw(mask).ellipse([0, 0, r * 2, r * 2], fill=255)
     canvas.paste(fitted, (cx - r, cy - r), mask)
@@ -223,7 +225,8 @@ with st.form("profile", border=True):
     )
 
 if photo_file:
-    st.image(photo_file, caption="Your uploaded photo", width=180)
+    preview = ImageOps.exif_transpose(Image.open(photo_file))
+    st.image(preview, caption="Your uploaded photo", width=180)
 
 if submitted:
     if not photo_file:
