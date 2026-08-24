@@ -2,11 +2,11 @@ import io
 from pathlib import Path
 
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 st.set_page_config(
-    page_title="BSA Inclusive Learning – Attendee Profile",
-    page_icon="🎓",
+    page_title="BSA inclusive learning – attendee profile",
+    page_icon=":material/school:",
     layout="centered",
 )
 
@@ -16,193 +16,251 @@ WHITE = "#FFFFFF"
 
 BASE_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = BASE_DIR / "assets"
+FONTS_DIR = ASSETS_DIR / "fonts"
 
-# Streamlit Cloud does not guarantee the Ubuntu/DejaVu font paths used in the
-# earlier version. Use a system font only when available, otherwise fall back
-# to Pillow's built-in font so the app works on any host.
-FONT_CANDIDATES = [
-    ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
-    ("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-     "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"),
-]
-
-
-def fnt(size: int, bold: bool = False):
-    index = 1 if bold else 0
-    for regular, bold_path in FONT_CANDIDATES:
-        path = bold_path if bold else regular
-        if Path(path).exists():
-            return ImageFont.truetype(path, size)
-    # Portable fallback: Pillow's built-in bitmap font.
-    return ImageFont.load_default()
+# Montserrat (SIL Open Font License) is bundled in assets/fonts so the generated
+# card renders identically on Windows, macOS and Streamlit Cloud.
+FONT_FILES = {
+    "regular": FONTS_DIR / "Montserrat-Regular.ttf",
+    "medium": FONTS_DIR / "Montserrat-Medium.ttf",
+    "semibold": FONTS_DIR / "Montserrat-SemiBold.ttf",
+    "bold": FONTS_DIR / "Montserrat-Bold.ttf",
+    "extrabold": FONTS_DIR / "Montserrat-ExtraBold.ttf",
+}
 
 
-def fit_text(draw, text: str, max_width: int, start_size: int, bold: bool = False):
+def fnt(size: int, weight: str = "regular"):
+    path = FONT_FILES.get(weight, FONT_FILES["regular"])
+    if path.exists():
+        return ImageFont.truetype(str(path), size)
+    # Portable fallback if the bundled fonts are missing.
+    return ImageFont.load_default(size)
+
+
+def fit_text(draw, text: str, max_width: int, start_size: int, weight: str = "regular"):
     size = start_size
     while size > 18:
-        font = fnt(size, bold)
+        font = fnt(size, weight)
         bbox = draw.textbbox((0, 0), text, font=font)
         if bbox[2] - bbox[0] <= max_width:
             return font
-        # If a fallback bitmap font is in use, there is no point trying sizes.
-        if font.size <= 12 if hasattr(font, "size") else False:
-            break
         size -= 2
-    return fnt(max(18, size), bold)
+    return fnt(max(18, size), weight)
 
 
-def make_profile(photo: Image.Image, name: str) -> Image.Image:
+def draw_centered_text(draw, text: str, y: int, font, fill: str, width: int, tracking: int = 0):
+    if tracking:
+        _draw_tracked_text(draw, text, y, font, fill, width, tracking)
+        return
+    bbox = draw.textbbox((0, 0), text, font=font)
+    x = (width - (bbox[2] - bbox[0])) / 2
+    draw.text((x, y), text, fill=fill, font=font)
+
+
+def _draw_tracked_text(draw, text: str, y: int, font, fill: str, width: int, tracking: int):
+    """Draw centered text with extra spacing between letters."""
+    widths = [draw.textbbox((0, 0), ch, font=font)[2] for ch in text]
+    total = sum(widths) + tracking * (len(text) - 1)
+    x = (width - total) / 2
+    for ch, w in zip(text, widths):
+        draw.text((x, y), ch, fill=fill, font=font)
+        x += w + tracking
+
+
+def _vertical_gradient(size, top_color, bottom_color):
+    """A smooth top-to-bottom gradient background."""
+    w, h = size
+    base = Image.new("RGB", (1, h))
+    tr, tg, tb = top_color
+    br, bg, bb = bottom_color
+    for y in range(h):
+        t = y / max(h - 1, 1)
+        base.putpixel((0, y), (
+            int(tr + (br - tr) * t),
+            int(tg + (bg - tg) * t),
+            int(tb + (bb - tb) * t),
+        ))
+    return base.resize((w, h))
+
+
+def _paste_logo(canvas, draw, logo, anchor_x, top, target_h=88, pad=16, align="center"):
+    """Trim a logo's uniform border and place it on a rounded card that
+    matches its own background colour, so each brand lockup reads cleanly."""
+    if logo.mode in ("RGBA", "LA", "P"):
+        logo = logo.convert("RGBA")
+        logo = Image.alpha_composite(Image.new("RGBA", logo.size, WHITE), logo)
+    logo = logo.convert("RGB")
+
+    bg = logo.getpixel((0, 0))
+    diff = ImageChops.difference(logo, Image.new("RGB", logo.size, bg))
+    bbox = diff.getbbox()
+    if bbox:
+        logo = logo.crop(bbox)
+    scale = target_h / logo.height
+    logo = logo.resize((max(1, round(logo.width * scale)), target_h), Image.Resampling.LANCZOS)
+
+    chip_w = logo.width + pad * 2
+    chip_h = target_h + pad * 2
+    if align == "left":
+        x0 = anchor_x
+    elif align == "right":
+        x0 = anchor_x - chip_w
+    else:
+        x0 = int(anchor_x - chip_w / 2)
+
+    # Soft drop shadow so the card lifts off the navy background
+    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle(
+        [x0, top + 8, x0 + chip_w, top + chip_h + 8], radius=18, fill=(0, 0, 0, 120)
+    )
+    canvas.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(9)))
+
+    draw.rounded_rectangle([x0, top, x0 + chip_w, top + chip_h], radius=18, fill=bg)
+    canvas.paste(logo, (x0 + pad, top + pad))
+
+
+def make_profile(photo: Image.Image, name: str, role: str = "I'm attending") -> Image.Image:
     W, H = 1080, 1350
-    canvas = Image.new("RGB", (W, H), NAVY)
-    draw = ImageDraw.Draw(canvas)
 
-    # Top gold line
-    draw.rectangle([0, 0, W, 16], fill=GOLD)
-
-    # Logos
     bsa_path = ASSETS_DIR / "bsa_logo.png"
     lsst_path = ASSETS_DIR / "lsst_logo.png"
     if not bsa_path.exists() or not lsst_path.exists():
         raise FileNotFoundError("Event logo assets are missing from the assets folder.")
 
-    bsa = Image.open(bsa_path).convert("RGB")
-    lsst = Image.open(lsst_path).convert("RGB")
-    bsa.thumbnail((145, 145))
-    lsst.thumbnail((145, 145))
-    canvas.paste(bsa, (35, 32))
-    canvas.paste(lsst, (900, 30))
+    canvas = _vertical_gradient((W, H), (23, 64, 128), (9, 27, 62)).convert("RGBA")
+    draw = ImageDraw.Draw(canvas)
 
-    # Header
-    header = "A REGIONAL EVENT OF BRITISH SOCIOLOGICAL ASSOCIATION"
-    small = fnt(20, True)
-    bbox = draw.textbbox((0, 0), header, font=small)
-    draw.text(((W - (bbox[2] - bbox[0])) / 2, 48), header, fill=WHITE, font=small)
+    # Gold frame: top bar + thin inner border
+    draw.rectangle([0, 0, W, 14], fill=GOLD)
+    draw.rectangle([28, 28, W - 28, H - 28], outline=GOLD, width=2)
+
+    # Brand lockups in the top corners
+    _paste_logo(canvas, draw, Image.open(bsa_path), 44, 46, align="left")
+    _paste_logo(canvas, draw, Image.open(lsst_path), W - 44, 46, align="right")
+
+    # Event association line
+    draw_centered_text(
+        draw, "A REGIONAL EVENT OF THE BRITISH SOCIOLOGICAL ASSOCIATION",
+        202, fnt(19, "semibold"), GOLD, W, tracking=2,
+    )
 
     # Main title
-    title_lines = [
-        ("EDUCATING THE", 160, WHITE, 42),
-        ("NON-TRADITIONAL LEARNER:", 210, WHITE, 42),
-        ("THE WANT, THE NEED, AND THE DEMAND FOR", 270, GOLD, 24),
-        ("INCLUSIVE LEARNING IN THE 21ST CENTURY", 302, GOLD, 24),
-    ]
-    for text, y, fill, size in title_lines:
-        font = fnt(size, True)
-        bbox = draw.textbbox((0, 0), text, font=font)
-        draw.text(((W - (bbox[2] - bbox[0])) / 2, y), text, fill=fill, font=font)
+    draw_centered_text(draw, "EDUCATING THE", 250, fnt(46, "extrabold"), WHITE, W)
+    title2 = fit_text(draw, "NON-TRADITIONAL LEARNER", 900, 54, "extrabold")
+    draw_centered_text(draw, "NON-TRADITIONAL LEARNER", 306, title2, WHITE, W)
 
-    draw.rectangle([110, 355, 970, 360], fill=GOLD)
+    # Subtitle
+    draw_centered_text(draw, "The want, the need, and the demand for", 382, fnt(26, "semibold"), GOLD, W)
+    draw_centered_text(draw, "inclusive learning in the 21st century", 418, fnt(26, "semibold"), GOLD, W)
 
-    # Attending label
-    attending = "I'M ATTENDING"
-    font = fnt(60, True)
-    bbox = draw.textbbox((0, 0), attending, font=font)
-    draw.text(((W - (bbox[2] - bbox[0])) / 2, 390), attending, fill=WHITE, font=font)
+    # Divider + role label
+    draw.rounded_rectangle([(W - 120) / 2, 470, (W + 120) / 2, 474], radius=2, fill=GOLD)
+    draw_centered_text(draw, role.upper(), 492, fnt(56, "extrabold"), WHITE, W, tracking=4)
 
-    # Circular photo frame
-    cx, cy, r = 540, 660, 190
-    draw.ellipse([cx - r - 10, cy - r - 10, cx + r + 10, cy + r + 10], fill=GOLD)
+    # Circular photo with gold ring
+    cx, cy, r = 540, 772, 196
+    draw.ellipse([cx - r - 14, cy - r - 14, cx + r + 14, cy + r + 14], fill=GOLD)
     fitted = ImageOps.fit(photo.convert("RGB"), (r * 2, r * 2), method=Image.Resampling.LANCZOS)
     mask = Image.new("L", (r * 2, r * 2), 0)
     ImageDraw.Draw(mask).ellipse([0, 0, r * 2, r * 2], fill=255)
     canvas.paste(fitted, (cx - r, cy - r), mask)
 
-    # Participant name only
-    clean_name = name.strip() or "YOUR NAME"
-    name_font = fit_text(draw, clean_name.upper(), 850, 42, True)
-    bbox = draw.textbbox((0, 0), clean_name.upper(), font=name_font)
-    draw.text(((W - (bbox[2] - bbox[0])) / 2, 900), clean_name.upper(), fill=GOLD, font=name_font)
+    # Participant name
+    clean_name = name.strip() or "Your name"
+    name_font = fit_text(draw, clean_name, 880, 60, "extrabold")
+    draw_centered_text(draw, clean_name, 1004, name_font, GOLD, W)
 
     # Event details card
-    card = [85, 1060, 995, 1180]
-    draw.rounded_rectangle(card, radius=24, fill=WHITE, outline=GOLD, width=5)
+    draw.rounded_rectangle([95, 1120, 985, 1248], radius=22, fill=WHITE)
+    draw.rounded_rectangle([95, 1120, 985, 1248], radius=22, outline=GOLD, width=3)
+    draw_centered_text(draw, "3 September 2026   •   10:00 – 15:00", 1146, fnt(27, "bold"), NAVY, W)
+    draw_centered_text(draw, "Aston Campus Event Centre  •  Birmingham, UK", 1192, fnt(19, "semibold"), NAVY, W)
 
-    details = [
-        ("3 SEPTEMBER 2026   •   10:00 – 15:00", 1080, 25),
-        ("ASTON CAMPUS EVENT CENTRE • BIRMINGHAM, UK", 1125, 19),
-    ]
-    for text, y, size in details:
-        font = fnt(size, True)
-        bbox = draw.textbbox((0, 0), text, font=font)
-        draw.text(((W - (bbox[2] - bbox[0])) / 2, y), text, fill=NAVY, font=font)
+    # Hashtags
+    draw_centered_text(draw, "#InclusiveLearning     #BSA2026", 1282, fnt(23, "bold"), GOLD, W)
 
-    hashtags = "#InclusiveLearning   #BSA2026"
-    font = fnt(22, True)
-    bbox = draw.textbbox((0, 0), hashtags, font=font)
-    draw.text(((W - (bbox[2] - bbox[0])) / 2, 1240), hashtags, fill=GOLD, font=font)
-
-    return canvas
+    return canvas.convert("RGB")
 
 
+st.logo(str(ASSETS_DIR / "bsa_logo.png"), size="large")
+
+# Partner branding
+brand = st.container(horizontal=True, horizontal_alignment="center", gap="large")
+brand.image(str(ASSETS_DIR / "bsa_logo.png"), width=130)
+brand.image(str(ASSETS_DIR / "lsst_logo.png"), width=180)
+
+st.title(":material/school: Create your BSA event profile", text_alignment="center")
 st.markdown(
-    f"""
-    <style>
-    .stApp {{background: #f4f6f9;}}
-    .main .block-container {{max-width: 850px; padding-top: 2rem;}}
-    .hero {{background: {NAVY}; padding: 24px; border-radius: 18px; color: white;}}
-    .hero h1 {{color: white; margin-bottom: 4px;}}
-    .hero p {{color: white;}}
-    </style>
-    """,
-    unsafe_allow_html=True,
+    "**Educating the Non-Traditional Learner:** the want, the need, and the demand "
+    "for inclusive learning in the 21st century",
+    text_alignment="center",
 )
-
 st.markdown(
-    """
-    <div class="hero">
-      <h1>🎓 Create Your BSA Event Profile</h1>
-      <p>Educating the Non-Traditional Learner: The Want, the Need, and the Demand for Inclusive Learning in the 21st Century</p>
-      <p><b>3 September 2026 • 10:00–15:00 • Aston Campus Event Centre, Birmingham</b></p>
-    </div>
-    """,
-    unsafe_allow_html=True,
+    ":orange-badge[:material/event: 3 September 2026 · 10:00–15:00]"
+    "&nbsp;&nbsp;:gray-badge[:material/location_on: Aston Campus Event Centre · Birmingham]",
+    text_alignment="center",
 )
 
-st.write("")
-st.subheader("Create your personalised profile")
+st.subheader("Create your personalised profile", text_alignment="center")
 
-photo_file = st.file_uploader(
-    "1. Upload your photograph",
-    type=["jpg", "jpeg", "png"],
-    help="A clear head-and-shoulders photograph works best.",
-)
-
-name = st.text_input("2. Your name", placeholder="e.g. Jane Smith")
+with st.form("profile", border=True):
+    photo_file = st.file_uploader(
+        "Upload your photograph",
+        type=["jpg", "jpeg", "png"],
+        help="A clear head-and-shoulders photograph works best.",
+    )
+    name = st.text_input("Your name", placeholder="e.g. Jane Smith")
+    role = st.segmented_control(
+        "I am...",
+        options=["I'm attending", "I'm speaking"],
+        default="I'm attending",
+    )
+    submitted = st.form_submit_button(
+        "Create my profile",
+        type="primary",
+        icon=":material/auto_awesome:",
+        width="stretch",
+    )
 
 if photo_file:
-    photo = Image.open(photo_file)
-    st.image(photo, caption="Your uploaded photo", width=180)
+    st.image(photo_file, caption="Your uploaded photo", width=180)
 
-if st.button("✨ Create My Profile", type="primary", use_container_width=True):
+if submitted:
     if not photo_file:
-        st.error("Please upload your photograph.")
+        st.error("Please upload your photograph.", icon=":material/error:")
     elif not name.strip():
-        st.error("Please enter your name.")
+        st.error("Please enter your name.", icon=":material/error:")
     else:
         try:
+            selected_role = role or "I'm attending"
             with st.spinner("Creating your profile..."):
-                result = make_profile(Image.open(photo_file), name)
+                result = make_profile(Image.open(photo_file), name, selected_role)
 
             buf = io.BytesIO()
             result.save(buf, format="PNG")
             data = buf.getvalue()
 
-            st.success("Your profile is ready!")
-            st.image(data, caption="Your BSA event profile", use_container_width=True)
+            file_slug = "Speaker" if selected_role == "I'm speaking" else "Attendee"
+            st.success("Your profile is ready!", icon=":material/check_circle:")
+            st.image(data, caption="Your BSA event profile", width="stretch")
 
             st.download_button(
-                "⬇️ Download My Profile",
+                "Download my profile",
                 data=data,
-                file_name="BSA_2026_Attendee_Profile.png",
+                file_name=f"BSA_2026_{file_slug}_Profile.png",
                 mime="image/png",
-                use_container_width=True,
+                icon=":material/download:",
+                width="stretch",
             )
         except Exception as exc:
-            st.error("We couldn't create the profile. Please try another image or contact the event organiser.")
-            st.exception(exc) if st.secrets.get("SHOW_DEBUG", False) else None
+            st.error(
+                "We couldn't create the profile. Please try another image or contact the event organiser.",
+                icon=":material/error:",
+            )
+            if st.secrets.get("SHOW_DEBUG", False):
+                st.exception(exc)
 
-st.divider()
 st.caption(
-    "Privacy: your uploaded photograph is used to generate your profile during this session. "
-    "The app is designed not to save participant photographs to a permanent database."
+    ":material/lock: Privacy: your uploaded photograph is used to generate your profile during "
+    "this session. The app is designed not to save participant photographs to a permanent database."
 )

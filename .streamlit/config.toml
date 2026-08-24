@@ -1,0 +1,12 @@
+[theme]
+base = "light"
+primaryColor = "#102F62"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F6F9"
+textColor = "#102F62"
+linkColor = "#102F62"
+borderColor = "#E5A91F"
+baseRadius = "12px"
+buttonRadius = "12px"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFontWeights = [700, 600, 600, 600, 500, 500]
