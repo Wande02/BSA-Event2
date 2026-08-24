@@ -75,16 +75,14 @@ def make_profile(photo: Image.Image, name: str) -> Image.Image:
 
     # Header
     header = "A REGIONAL EVENT OF BRITISH SOCIOLOGICAL ASSOCIATION"
-    small = fnt(20, True)
+    small = fnt(35, True)
     bbox = draw.textbbox((0, 0), header, font=small)
     draw.text(((W - (bbox[2] - bbox[0])) / 2, 48), header, fill=WHITE, font=small)
 
     # Main title
     title_lines = [
-        ("EDUCATING THE", 160, WHITE, 42),
-        ("NON-TRADITIONAL LEARNER:", 210, WHITE, 42),
-        ("THE WANT, THE NEED, AND THE DEMAND FOR", 270, GOLD, 24),
-        ("INCLUSIVE LEARNING IN THE 21ST CENTURY", 302, GOLD, 24),
+        ("EDUCATING THE NON-TRADITIONAL LEARNER:", 160, WHITE, 42),
+        ("THE WANT, THE NEED, AND THE DEMAND FOR INCLUSIVE LEARNING IN THE 21ST CENTURY", 270, GOLD, 24),
     ]
     for text, y, fill, size in title_lines:
         font = fnt(size, True)
@@ -94,7 +92,7 @@ def make_profile(photo: Image.Image, name: str) -> Image.Image:
     draw.rectangle([110, 355, 970, 360], fill=GOLD)
 
     # Attending label
-    attending = "I'M ATTENDING"
+    attending = "I'M PRESENTING"
     font = fnt(60, True)
     bbox = draw.textbbox((0, 0), attending, font=font)
     draw.text(((W - (bbox[2] - bbox[0])) / 2, 390), attending, fill=WHITE, font=font)
@@ -118,8 +116,8 @@ def make_profile(photo: Image.Image, name: str) -> Image.Image:
     draw.rounded_rectangle(card, radius=24, fill=WHITE, outline=GOLD, width=5)
 
     details = [
-        ("3 SEPTEMBER 2026   •   10:00 – 15:00", 1080, 25),
-        ("ASTON CAMPUS EVENT CENTRE • BIRMINGHAM, UK", 1125, 19),
+        ("3 SEPTEMBER 2026", 1080, 25),
+        ("ASTON CAMPUS EVENT CENTRE        BIRMINGHAM, UK", 1125, 19),
     ]
     for text, y, size in details:
         font = fnt(size, True)
